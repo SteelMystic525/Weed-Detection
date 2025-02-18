@@ -1,0 +1,150 @@
+#include <WiFi.h>
+#include "BluetoothSerial.h"
+
+// Wi-Fi credentials
+const char* ssid = "Sudd";           // Replace with your Wi-Fi SSID
+const char* password = "123456789";  // Replace with your Wi-Fi password
+
+WiFiServer server(80); // Start a web server on port 80
+char arucoMessage[100] = "No ArUco detected"; // Default message
+char arucoID[6] = "No ID"; // Default ArUco ID message
+
+// Bluetooth Serial instance
+BluetoothSerial BTSerial;
+
+// Motor pins
+const int motor1Forward = 16;  // GPIO pin for Motor 1 forward
+const int motor1Backward = 17; // GPIO pin for Motor 1 backward
+const int motor2Forward = 18;  // GPIO pin for Motor 2 forward
+const int motor2Backward = 19; // GPIO pin for Motor 2 backward
+
+// Store HTML content in flash memory to save RAM
+const char htmlStart[] PROGMEM = "<!DOCTYPE HTML><html><head><title>ESP32 ArUco Detector</title></head><body style='text-align:center;'>";
+const char htmlEnd[] PROGMEM = "</body></html>";
+const char header[] PROGMEM = "<h1>ArUco Detection Status</h1>";
+const char footer[] PROGMEM = "<p>ESP32 Motor Cont rol</p>";
+const char defaultMessage[] PROGMEM = "No ArUco detected";
+
+void setup() {
+  Serial.begin(115200);
+
+  // Motor pin setup
+  pinMode(motor1Forward, OUTPUT);
+  pinMode(motor1Backward, OUTPUT);
+  pinMode(motor2Forward, OUTPUT);
+  pinMode(motor2Backward, OUTPUT);
+
+  // Start Bluetooth communication
+  BTSerial.begin("ESP32-Motor-Control"); // Set Bluetooth device name
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+  }
+
+  // Start the server
+  server.begin();
+
+  Serial.println("Wi-Fi connected.");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void loop() {
+  // Handle HTTP requests from clients
+  WiFiClient client = server.available();
+  if (client) {
+    String request = "";
+    while (client.available()) {
+      char c = client.read();
+      request += c;
+    }
+
+    // Handle ArUco detection messages
+    if (request.indexOf("GET /aruco/id") != -1) {
+      int startIndex = request.indexOf("id=") + 3;
+      int endIndex = request.indexOf(" ", startIndex);
+      if (endIndex == -1) {
+        endIndex = request.length();
+      }
+      String id = request.substring(startIndex, endIndex);
+      id.toCharArray(arucoID, id.length() + 1);  // Copy the ID to arucoID
+      strcpy(arucoMessage, "ArUco detected with ID: ");
+      strcat(arucoMessage, arucoID);  // Append the detected ID
+    } else {
+      strcpy(arucoMessage, "No ArUco detected");  // Default message if no ID is detected
+      strcpy(arucoID, "No ID detected");  // Default ID message
+    }
+
+    // Send the HTTP response
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: text/html");
+    client.println("Connection: close");
+    client.println();
+    client.print(htmlStart);
+    client.print(header);
+    client.print("<p>");
+    client.print(arucoMessage);
+    client.print("</p>");
+    client.print("<p>Detected ArUco ID: ");
+    client.print(arucoID);
+    client.print("</p>");
+    client.print(footer);
+    client.print(htmlEnd);
+    client.stop();
+  }
+
+  // Bluetooth Motor Control
+  if (BTSerial.available()) {
+    char command = BTSerial.read(); // Read a single character from Bluetooth
+    // Process commands
+    if (command == 'F') {
+      moveForward();
+    } else if (command == 'B') {
+      moveBackward();
+    } else if (command == 'L') {
+      turnLeft();
+    } else if (command == 'R') {
+      turnRight();
+    } else if (command == 'S') {
+      stopMotors();
+    }
+  }
+}
+
+// Motor control functions
+void moveForward() {
+  digitalWrite(motor1Forward, HIGH);
+  digitalWrite(motor1Backward, LOW);
+  digitalWrite(motor2Forward, HIGH);
+  digitalWrite(motor2Backward, LOW);
+}
+
+void moveBackward() {
+  digitalWrite(motor1Forward, LOW);
+  digitalWrite(motor1Backward, HIGH);
+  digitalWrite(motor2Forward, LOW);
+  digitalWrite(motor2Backward, HIGH);
+}
+
+void turnLeft() {
+  digitalWrite(motor1Forward, LOW);
+  digitalWrite(motor1Backward, HIGH);
+  digitalWrite(motor2Forward, HIGH);
+  digitalWrite(motor2Backward, LOW);
+}
+
+void turnRight() {
+  digitalWrite(motor1Forward, HIGH);
+  digitalWrite(motor1Backward, LOW);
+  digitalWrite(motor2Forward, LOW);
+  digitalWrite(motor2Backward, HIGH);
+}
+
+void stopMotors() {
+  digitalWrite(motor1Forward, LOW);
+  digitalWrite(motor1Backward, LOW);
+  digitalWrite(motor2Forward, LOW);
+  digitalWrite(motor2Backward, LOW);
+}
